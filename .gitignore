@@ -1,0 +1,6 @@
+*.exe
+*.o
+*.a
+orig
+subleq
+save
