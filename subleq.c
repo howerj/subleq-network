@@ -18,12 +18,14 @@ static u16 m[1<<16], prog = 0, pc = 0;
 #if defined(unix) || defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))
 #include <unistd.h>
 #include <termios.h>
-int getch(void) { /* reads from keypress, doesn't echo */
+int getch(void) { /* reads from keypress, doesn't echo, none blocking */
 	struct termios oldattr, newattr;
 	if (tcgetattr(STDIN_FILENO, &oldattr) < 0) goto fail;
 	newattr = oldattr;
 	newattr.c_iflag &= ~(ICRNL);
 	newattr.c_lflag &= ~(ICANON | ECHO);
+	newattr.c_cc[VMIN]  = 0;
+	newattr.c_cc[VTIME] = 0;
 	if (tcsetattr(STDIN_FILENO, TCSANOW, &newattr) < 0) goto fail;
 	const int ch = getchar();
 	if (tcsetattr(STDIN_FILENO, TCSANOW, &oldattr) < 0) goto fail;
@@ -35,7 +37,7 @@ fail:
 }
 
 int putch(int c) {
-	int r =putchar(c);
+	int r = putchar(c);
 	if (fflush(stdout) < 0) return -1;
 	return r;
 }
@@ -102,8 +104,8 @@ static void eth_transmit(pcap_t *handle, int len) {
 int main(int argc, char **argv) {
 	if (setvbuf(stdout, NULL, _IONBF, 0) < 0)
 		return 1;
-	if (pcapdev_init("lo") < 0)
-		return 2;
+//	if (pcapdev_init("lo") < 0)
+//		return 2;
 	for (long i = 1, d = 0; i < argc; i++) {
 		FILE *f = fopen(argv[i], "rb");
 		if (!f)
@@ -116,14 +118,19 @@ int main(int argc, char **argv) {
 	for (pc = 0; pc < 32768;) {
 		u16 a = m[pc++], b = m[pc++], c = m[pc++];
 		// TODO: Peripherals for timer, block, network, ...
-		if ((i16)a < 0) {
-			switch ((i16)a) {
-			case -1: m[b] = getch(); break;
-			}
-		} else if ((i16)b < 0) {
-			switch ((i16)b) {
-			case -1: if (putch(m[a]) < 0) return 5; break;
-			}
+		if (a == n) {
+		//if ((i16)a < 0) {
+			m[b] = getchar();
+			//switch ((i16)a) {
+			//case -1: m[b] = getch(); break;
+			//}
+		//} else if ((i16)b < 0) {
+		} else if (b == n) {
+			putchar(m[a]);
+			//if (putch(m[a]) < 0) return 5;
+			//switch ((i16)b) {
+			//case -1: if (putch(m[a]) < 0) return 5; break;
+			//}
 		} else {
 			u16 r = m[b] - m[a];
 			if (r == 0 || r & 32768)

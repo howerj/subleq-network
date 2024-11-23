@@ -1,6 +1,7 @@
+*.a
+*.dec
 *.exe
 *.o
-*.a
 orig
-subleq
 save
+subleq

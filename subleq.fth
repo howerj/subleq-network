@@ -18,7 +18,7 @@ only forth definitions hex
 : sys.info     4 or ; ( bit #3 = print info msg on startup )
 : sys.eof      8 or ; ( bit #4 = die if received EOF )
 : sys.warnv  $10 or ; ( bit #5 = warn if virtualized )
-0 ( sys.cksum ) sys.eof sys.echo-off sys.warnv constant opt.sys
+0 ( sys.cksum ) ( sys.eof ) sys.echo-off sys.warnv constant opt.sys
 defined (order) 0= [if]
 : (order) ( w wid*n n -- wid*n w n )
   dup if
