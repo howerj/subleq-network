@@ -76,7 +76,7 @@ variable voc-last 0 voc-last ! ( last defined in any vocab )
 :m mswap swap ;m ( u -- : always call swap )
 :m mdecimal decimal ;m ( -- : always call decimal )
 :m mhex hex ;m ( -- : always call hex )
-:m (field) over + swap ;m
+:m (field) 2dup + -rot ;m ( pos n -- pos+n pos n )
 defined eforth [if]
   :m tpack dup tc, for aft count tc, then next drop ;m
   :m parse-word bl word ?nul count ;m ( -- a u )
@@ -1584,6 +1584,11 @@ variable freelist 0 t, 0 t, ( 0 t' freelist t! )
 : free freelist (free) ; ( ptr -- ior )
 : resize freelist (resize) ; ( ptr u -- ptr ior )
 [then]
+:s (2const) r> 2* 2@ ;s compile-only ( R: a --, -- u )
+:m 2constant :t mdrop (2const) t, t, ;m
+:m 2variable :t mdrop mswap (var) t, t, munorder ;m
+:m 2literal mswap lit lit ;m
+:m mcreate :t mdrop (var) munorder ;m ( --, "name": var )
 opt.float [if] ( Large section of optional code! )
 ( See <https://github.com/howerj/subleq> for more info )
 ( Heavily modified and extended from floating point code with )
@@ -1598,11 +1603,7 @@ system[
   $10 constant #bits  ( = 1 cells 8 * )
   $8000 constant #msb ( = 1 #bits 1- lshift  )
 ]system
-:s (2const) r> 2* 2@ ;s compile-only ( R: a --, -- u )
-:m 2constant :t mdrop (2const) t, t, ;m
-:m 2variable :t mdrop mswap (var) t, t, munorder ;m
-:m 2literal mswap lit lit ;m
-:m mcreate :t mdrop (var) munorder ;m ( --, "name": var )
+
 : 2+ #2 + ; ( n -- n )
 : 2- #2 - ; ( n -- n )
 : 1+! #1 swap +! ; ( a -- )
@@ -1975,7 +1976,8 @@ opt.glossary [if]
 : cold [ {boot} ] literal 2* @execute ; ( -- )
 
 
-:m field (field) constant ;m
+\ TODO: This should use 2constant and save both field length and position.
+:m field (field) 2constant ;m
 
 \ : htons ( n -- n )
 \  dup ff and 8 lshift swap ff00 and 8 rshift or ;
@@ -2017,7 +2019,7 @@ constant #arp-message
 constant #arp-cache
 
 0
-  1 field ip-vhl    (  4 bit version and 4 bit header length )
+  1 field ip-vhl        (  4 bit version and 4 bit header length )
   1 field ip-tos        (  8 bit type of service )
   2 field ip-len        ( 16 bit length )
   2 field ip-id         ( 16 bit identification )
@@ -2028,6 +2030,7 @@ constant #arp-cache
   4 field ip-source     ( 32 bit source address )
   4 field ip-dest       ( 32 bit destination address )
 constant #ip-header
+: #ip #eth-frame #ip-header + ;
 
 0
   1 field icmp-type     (  8 bits type )
@@ -2041,6 +2044,7 @@ constant #icmp-header
   2 field udp-len       ( 16 bit length )
   2 field udp-checksum  ( 16 bit checksum )
 constant #udp-datagram
+: #udp #ip #udp-datagram + ;
 
 0
   2 field tcp-source    ( 16 bit source port )
@@ -2053,10 +2057,42 @@ constant #udp-datagram
   2 field tcp-checksum  ( 16 bit checksum )
   2 field tcp-urgent    ( 16 bit urgent pointer )
 constant #tcp-header
+: #udp #ip #tcp-header + ;
+
+0
+  1 field ntp-livnm
+  1 field ntp-stratum
+  1 field ntp-poll
+  1 field ntp-precision
+  4 field ntp-root-delay
+  4 field ntp-root-dispersion
+  4 field ntp-refid
+  8 field ntp-ref-ts
+  8 field ntp-orig-ts
+  8 field ntp-rx-ts
+  8 field ntp-tx-ts
+  \ There are more optional fields, of varying length
+constant #ntp-header
 
 $8000 constant %eth.rx
 $A000 constant %eth.tx
 $2000 constant #eth.max
+
+$7F00 $0001 constant source-ip
+$7F00 $0001 constant destination-ip
+666 constant source-port
+667 constant destination-port
+
+\ TODO: Set IP packet
+: ip! ( src-ip dst-ip data-len )
+;
+
+\ TODO: Set UDP packet
+: udp! ( src-ip dst-ip src-port dst-port data u )
+  %eth.tx #udp + 
+;
+
+\ TODO: Put all these words in their own vocabulary
 
 : eth-tx! opOut2 ; ( len -- )
 : eth! eth-tx! [ -2 ] literal [@]  ;
