@@ -76,6 +76,7 @@ variable voc-last 0 voc-last ! ( last defined in any vocab )
 :m mswap swap ;m ( u -- : always call swap )
 :m mdecimal decimal ;m ( -- : always call decimal )
 :m mhex hex ;m ( -- : always call hex )
+:m (field) over + swap ;m
 defined eforth [if]
   :m tpack dup tc, for aft count tc, then next drop ;m
   :m parse-word bl word ?nul count ;m ( -- a u )
@@ -1974,6 +1975,85 @@ opt.glossary [if]
 : cold [ {boot} ] literal 2* @execute ; ( -- )
 
 
+:m field (field) constant ;m
+
+\ : htons ( n -- n )
+\  dup ff and 8 lshift swap ff00 and 8 rshift or ;
+
+\ create ip_addr a8c0 , fe0b ,
+\ create ip_netmask ffff , 00ff ,
+\ create hw_addr bd00 , 333b , 7f05 ,
+
+\ : checksum ( address count -- checksum )
+\  over + 0 -rot 
+\  do
+\   i @ + i @ over u> if 1+ then
+\  -2 +loop
+\  dup 10 rshift swap ffff and +
+\  dup 10 rshift +
+\  ffff xor ;
+
+0
+  6 field eth-dest      ( 48 bit source address )
+  6 field eth-src       ( 48 bit destination address )
+  2 field eth-type      ( 16 bit type )
+constant #eth-frame
+
+0
+  2 field arp-hw        ( 16 bit hw type )
+  2 field arp-proto     ( 16 bit protocol )
+  1 field arp-hlen      (  8 bit hw address length )
+  1 field arp-plen      (  8 bit protocol address length )
+  2 field arp-op        ( 16 bit operation )
+  6 field arp-shw       ( 48 bit sender hw address )
+  4 field arp-sp        ( 32 bit sender ipv4 address )
+  6 field arp-thw       ( 48 bit target hw address )
+  4 field arp-tp        ( 32 bit target ipv4 address )
+constant #arp-message
+
+0
+  4 field ac-ip         ( 32 bit protocol address )
+  6 field ac-hw         ( 48 bit hw address )
+constant #arp-cache
+
+0
+  1 field ip-vhl    (  4 bit version and 4 bit header length )
+  1 field ip-tos        (  8 bit type of service )
+  2 field ip-len        ( 16 bit length )
+  2 field ip-id         ( 16 bit identification )
+  2 field ip-frags      (  3 bit flags 13 bit fragment offset )
+  1 field ip-ttl        (  8 bit time to live )
+  1 field ip-proto      (  8 bit protocol number )
+  2 field ip-checksum   ( 16 bit checksum )
+  4 field ip-source     ( 32 bit source address )
+  4 field ip-dest       ( 32 bit destination address )
+constant #ip-header
+
+0
+  1 field icmp-type     (  8 bits type )
+  1 field icmp-code     (  8 bits code )
+  2 field icmp-checksum ( 16 bits checksum )
+constant #icmp-header
+
+0
+  2 field udp-source    ( 16 bit source port )
+  2 field udp-dest      ( 16 bit destination port )
+  2 field udp-len       ( 16 bit length )
+  2 field udp-checksum  ( 16 bit checksum )
+constant #udp-datagram
+
+0
+  2 field tcp-source    ( 16 bit source port )
+  2 field tcp-dest      ( 16 bit destination port )
+  4 field tcp-seq       ( 32 bit sequence number )
+  4 field tcp-ack       ( 32 bit acknowledgement )
+  1 field tcp-offset    (  8 bit offset )
+  2 field tcp-flags     ( 16 bit flags )
+  1 field tcp-window    (  8 bit window size )
+  2 field tcp-checksum  ( 16 bit checksum )
+  2 field tcp-urgent    ( 16 bit urgent pointer )
+constant #tcp-header
+
 $8000 constant %eth.rx
 $A000 constant %eth.tx
 $2000 constant #eth.max
@@ -1982,7 +2062,7 @@ $2000 constant #eth.max
 : eth! eth-tx! [ -2 ] literal [@]  ;
 : eth@ [ -3 ] literal [@] ;
 : time [ -4 ] literal [@] [ -5 ] literal [@] ; 
-: sleep opOut4 ;
+: sleep opOut4 ; \ TODO: Make a more generic output primitive
 : ud. <# #s bl hold #> type ;
 
 t' (boot) half {boot} t!      \ Set starting Forth word
