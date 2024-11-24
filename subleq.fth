@@ -8,7 +8,7 @@ only forth definitions hex
 1 constant opt.info       ( Add info printing function )
 0 constant opt.generate-c ( Generate C code )
 0 constant opt.better-see ( Replace 'see' with better version )
-0 constant opt.control    ( Add in more control structures )
+1 constant opt.control    ( Add in more control structures )
 0 constant opt.allocate   ( Add in "allocate"/"free" )
 0 constant opt.float      ( Add in floating point code )
 0 constant opt.glossary   ( Add in "glossary" word )
@@ -21,7 +21,7 @@ only forth definitions hex
 : sys.info     4 or ; ( bit #3 = print info msg on startup )
 : sys.eof      8 or ; ( bit #4 = die if received EOF )
 : sys.warnv  $10 or ; ( bit #5 = warn if virtualized )
-0 ( sys.cksum ) ( sys.eof ) sys.echo-off sys.warnv constant opt.sys
+0 ( sys.cksum ) ( sys.eof ) ( sys.echo-off ) sys.warnv constant opt.sys
 defined (order) 0= [if]
 : (order) ( w wid*n n -- wid*n w n )
   dup if
@@ -1970,6 +1970,14 @@ opt.glossary [if]
 : glossary get-order for aft .voc @ (w) then next ; ( -- )
 [then]
 : cold [ {boot} ] literal 2* @execute ; ( -- )
+
+: eth-tx! [ -2 ] literal [!] ; ( -- len )
+: eth! eth-tx! [ -2 ] literal [@]  ;
+: eth@ [ -3 ] literal [@] ;
+: time [ -4 ] literal [@] [ -5 ] literal [@] ; 
+: sleep [ -4 ] literal [!] ;
+: ud. <# #s bl hold #> type ;
+
 t' (boot) half {boot} t!      \ Set starting Forth word
 t' quit {quit} t!             \ Set initial Forth word
 atlast {forth-wordlist} t!    \ Make wordlist work

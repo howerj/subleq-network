@@ -20,19 +20,29 @@ static u16 m[1<<16], prog = 0, pc = 0;
 #if defined(unix) || defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))
 #include <unistd.h>
 #include <termios.h>
-int getch(void) { /* Unix junk! */
-	struct termios oldattr, newattr;
-	if (tcgetattr(STDIN_FILENO, &oldattr) < 0) goto fail;
-	newattr = oldattr;
-	newattr.c_iflag &= ~(ICRNL);
-	newattr.c_lflag &= ~(ICANON | ECHO);
-	newattr.c_cc[VMIN]  = 0;
-	newattr.c_cc[VTIME] = 0;
-	if (tcsetattr(STDIN_FILENO, TCSANOW, &newattr) < 0) goto fail;
+
+static struct termios oldattr;
+
+static void getch_deinit(void) {
+	(void)tcsetattr(STDIN_FILENO, TCSANOW, &oldattr);
+}
+
+static int getch(void) { /* Unix junk! */
+	static int terminit = 0;
+	if (!terminit) {
+		terminit = 1;
+		if (tcgetattr(STDIN_FILENO, &oldattr) < 0) goto fail;
+		struct termios newattr = oldattr;
+		newattr.c_iflag &= ~(ICRNL);
+		newattr.c_lflag &= ~(ICANON | ECHO);
+		newattr.c_cc[VMIN]  = 0;
+		newattr.c_cc[VTIME] = 0;
+		if (tcsetattr(STDIN_FILENO, TCSANOW, &newattr) < 0) goto fail;
+		atexit(getch_deinit);
+	}
 	unsigned char b = 0;
 	const int ch = read(STDIN_FILENO, &b, 1) != 1 ? -1 : b;
-	if (tcsetattr(STDIN_FILENO, TCSANOW, &oldattr) < 0) goto fail;
-	usleep(1);
+	usleep(1000);
 	if (ch == 0x1b) exit(0);
 	return ch == 127 ? 8 : ch;
 fail:
@@ -40,7 +50,7 @@ fail:
 	return 0;
 }
 
-int putch(int c) {
+static int putch(int c) {
 	int r = putchar(c);
 	if (fflush(stdout) < 0) return -1;
 	return r;
@@ -88,16 +98,37 @@ fail:
 	return -1;
 }
 
+static int dump(FILE *out, const char *banner, const unsigned char *m, size_t len) {
+	assert(out);
+	assert(banner);
+	assert(m);
+	const size_t col = 16;
+	if (fprintf(stderr, "\n%s\nLEN: %d\n", banner, (int)len) < 0) return -1;
+	for (size_t i = 0; i < len; i += col) {
+		if (fprintf(stderr, "%04X: ", (unsigned)i) < 0) return -1;
+		for (size_t j = i; j < len && j < (i + col); j++) {
+			if (fprintf(stderr, "%02X ", (unsigned)m[j]) < 0) return -1;
+		}
+		if (fprintf(stderr, "\n") < 0) return -1;
+	}
+	return 0;
+}
+
+/* TODO: make non-blocking...
+ * https://stackoverflow.com/questions/31305712/how-do-i-make-libpcap-pcap-loop-non-blocking
+ * https://linux.die.net/man/3/pcap_dispatch */
 static int eth_poll(pcap_t *handle, unsigned char *memory, int max) {
 	assert(handle);
 	assert(memory);
 	const u_char *packet = NULL;
 	struct pcap_pkthdr *header = NULL;
-	if (pcap_next_ex(handle, &header, &packet) == 0)
+	if (pcap_next_ex(handle, &header, &packet) == 0) {
 		return -1;
+	}
 	int len = header->len;
 	len = len > max ? max : len;
 	memcpy(&memory[ETH0_RX_PKT_ADDR], packet, len);
+	dump(stdout, "ETH RX", packet, len);
 	return len;
 }
 
