@@ -1,6 +1,4 @@
-// TODO: Cleanup after, save image also, better pcap interface, Windows raw
-// mode for stdin/stdout, timer peripheral, test on Windows, optional
-// non-blocking/blocking input/output
+/* 16-bit SUBLEQ VM with more peripherals (networking) by Richard James Howe */
 #include <stdio.h>
 #include <assert.h>
 #include <pcap.h>
@@ -9,16 +7,20 @@
 #include <string.h>
 #include <stdint.h>
 #include <sys/stat.h>
+#include <time.h>
 
 typedef uint16_t u16;
 typedef int16_t i16;
-static const u16 n = -1, net = -2, timer = -3, block = -4;
 static u16 m[1<<16], prog = 0, pc = 0;
+
+#define ETH0_MAX_PACKET_LEN (0x2000)
+#define ETH0_RX_PKT_ADDR (0x10000) /* This will be 0x8000 within the 16-bit SUBLEQ machine */
+#define ETH0_TX_PKT_ADDR (ETH0_RX_PKT_ADDR + ETH0_MAX_PACKET_LEN)
 
 #if defined(unix) || defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))
 #include <unistd.h>
 #include <termios.h>
-int getch(void) { /* reads from keypress, doesn't echo, none blocking */
+int getch(void) { /* Unix junk! */
 	struct termios oldattr, newattr;
 	if (tcgetattr(STDIN_FILENO, &oldattr) < 0) goto fail;
 	newattr = oldattr;
@@ -27,8 +29,10 @@ int getch(void) { /* reads from keypress, doesn't echo, none blocking */
 	newattr.c_cc[VMIN]  = 0;
 	newattr.c_cc[VTIME] = 0;
 	if (tcsetattr(STDIN_FILENO, TCSANOW, &newattr) < 0) goto fail;
-	const int ch = getchar();
+	unsigned char b = 0;
+	const int ch = read(STDIN_FILENO, &b, 1) != 1 ? -1 : b;
 	if (tcsetattr(STDIN_FILENO, TCSANOW, &oldattr) < 0) goto fail;
+	usleep(1);
 	if (ch == 0x1b) exit(0);
 	return ch == 127 ? 8 : ch;
 fail:
@@ -42,8 +46,9 @@ int putch(int c) {
 	return r;
 }
 #endif
-static pcap_t *handle = NULL;
-static int pcapdev_init(const char *name) {
+static int pcapdev_init(const char *name, pcap_t **handle) {
+	assert(handle);
+	*handle = 0;
 	char errbuf[PCAP_ERRBUF_SIZE] = { 0, };
 	pcap_if_t *devices = NULL;
 	if (pcap_findalldevs(&devices, errbuf) == -1) {
@@ -68,45 +73,56 @@ static int pcapdev_init(const char *name) {
 		goto fail;
 	}
 	device = found;
-	if (!(handle = pcap_open_live(device->name, 65536, 1, 10 , errbuf))) {
+	if (!(*handle = pcap_open_live(device->name, 65536, 1, 10 , errbuf))) {
 		(void)fprintf(stderr, "error opening %s\n", errbuf);
 		goto fail;
 	}
 	pcap_freealldevs(devices);
 	return 0;
 fail:
+	if (*handle)
+		pcap_close(*handle);
+	*handle = NULL;
 	if (devices)
 		pcap_freealldevs(devices);
 	return -1;
 }
 
-static int eth_poll(pcap_t *handle) {
+static int eth_poll(pcap_t *handle, unsigned char *memory, int max) {
 	assert(handle);
+	assert(memory);
 	const u_char *packet = NULL;
 	struct pcap_pkthdr *header = NULL;
-	// TODO: Non-blocking
-	while (pcap_next_ex(handle, &header, &packet) == 0)
-		/* Do nothing */;
-	const int len = header->len;
-	assert(len < 0x2000);
-	memcpy(&m[0x2000], packet, len);
+	if (pcap_next_ex(handle, &header, &packet) == 0)
+		return -1;
+	int len = header->len;
+	len = len > max ? max : len;
+	memcpy(&memory[ETH0_RX_PKT_ADDR], packet, len);
 	return len;
 }
 
-static void eth_transmit(pcap_t *handle, int len) {
+static int eth_transmit(pcap_t *handle, unsigned char *memory, int len) {
 	assert(handle);
-	if ((pcap_sendpacket(handle, (unsigned char *)(&m[0x2000]), len) == -1)) {
-		(void)fprintf(stderr, "pcap send error\n");
-		exit(1);
-	}
+	assert(memory);
+	return pcap_sendpacket(handle, &memory[ETH0_TX_PKT_ADDR], len);
+}
+
+static inline int isio(u16 addr) {
+	i16 a = addr;
+	return a <= -1 && a >= -16;
 }
 
 int main(int argc, char **argv) {
 	if (setvbuf(stdout, NULL, _IONBF, 0) < 0)
 		return 1;
-//	if (pcapdev_init("lo") < 0)
-//		return 2;
-	for (long i = 1, d = 0; i < argc; i++) {
+	if (argc < 2)
+		return 1;
+	pcap_t *handle = NULL;
+	time_t epoch = 0;
+	int len = 0;
+	if (pcapdev_init(argv[1], &handle) < 0)
+		return 2;
+	for (long i = 2, d = 0; i < (argc - (argc > 3)); i++) {
 		FILE *f = fopen(argv[i], "rb");
 		if (!f)
 			return 3;
@@ -117,26 +133,41 @@ int main(int argc, char **argv) {
 	}
 	for (pc = 0; pc < 32768;) {
 		u16 a = m[pc++], b = m[pc++], c = m[pc++];
-		// TODO: Peripherals for timer, block, network, ...
-		if (a == n) {
-		//if ((i16)a < 0) {
-			m[b] = getchar();
-			//switch ((i16)a) {
-			//case -1: m[b] = getch(); break;
-			//}
-		//} else if ((i16)b < 0) {
-		} else if (b == n) {
-			putchar(m[a]);
-			//if (putch(m[a]) < 0) return 5;
-			//switch ((i16)b) {
-			//case -1: if (putch(m[a]) < 0) return 5; break;
-			//}
+		if (isio(a)) {
+			switch ((i16)a) {
+			case -1: m[b] = getch(); break;
+			case -2: m[b] = eth_transmit(handle, (unsigned char *)m, len); break;
+			case -3: m[b] = eth_poll(handle, (unsigned char*)m, ETH0_MAX_PACKET_LEN); break;
+			case -4: epoch = time(NULL); m[b] = epoch; break;
+			case -5: m[b] = epoch >> 16; break;
+			}
+		} else if (isio(b)) {
+			switch ((i16)b) {
+			case -1: if (putch(m[a]) < 0) return 5; break;
+			case -2: len = m[a]; break;
+			case -4: usleep(m[a]); break;
+			}
 		} else {
 			u16 r = m[b] - m[a];
 			if (r == 0 || r & 32768)
 				pc = c;
 			m[b] = r;
 		}
+	}
+	pc = -1;
+	while (!m[pc])
+		pc--;
+	if (argc > 3) {
+		FILE *f = fopen(argv[argc - 1], "wb");
+		if (!f)
+			return 5;
+		for (unsigned i = 0; i < pc; i++)
+			if (fprintf(f, "%d\n", (int16_t)m[i]) < 0) {
+				(void)fclose(f);
+				return 6;
+			}
+		if (fclose(f) < 0)
+			return 7;
 	}
 	return 0;
 }

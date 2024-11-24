@@ -33,7 +33,6 @@ help:
 	@echo "	run      : run ${IMAGE} with SUBLEQ VM"
 	@echo "	clean    : remove build files using 'git clean -dffx'"
 	@echo "	help     : display this help message"
-	@echo "	gforth   : compile and run ${FORTH} with gforth"
 	@echo
 	@echo "Consult subleq.fth for more information along"
 	@echo "with the project "readme.md" file."
@@ -45,13 +44,10 @@ subleq: subleq.c
 	${CC} ${CFLAGS} $< ${LDFLAGS} -o $@
 
 run: subleq ${IMAGE}
-	./subleq ${DEVICE} ${IMAGE} ${SAVED}
+	sudo ./subleq ${DEVICE} ${IMAGE} ${SAVED}
 
-gforth.dec: ${FORTH}
+subleq.dec: ${FORTH}
 	gforth $< > $@
-
-gforth: subleq gforth.dec
-	./subleq gforth.dec
 
 clean:
 	git clean -dffx

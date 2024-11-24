@@ -23,8 +23,11 @@ The goal of this project is to get a simple networking stack up and running for 
 # To Do
 
 * [ ] Add references, documentation, etcetera
+  * [ ] Document new SUBLEQ peripherals
 * [ ] Make scripts for sending/receiving data, monitoring data sent/received
 * [ ] Add and test peripherals to SUBLEQ machine
 * [ ] Decide on which protocols to implement (IP, UDP, TFTP, DNS, ARP, DHCP,
   TCP, and as clients/servers).
 * [ ] Make some Forth!
+* [ ] Test on Windows
+  * [ ] Windows Raw Stdin/Stdout mode
