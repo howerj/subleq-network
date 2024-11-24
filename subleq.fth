@@ -412,6 +412,8 @@ assembler.1 -order
 :a [@] tos tos iLOAD ;a ( a -- a : load SUBLEQ address )
 :a [!] r0 {sp} iLOAD r0 tos iSTORE --sp t' opDrop JMP (a);
 :a opEmit tos PUT t' opDrop JMP (a); ( n -- )
+:a opOut2 tos 2/ t, -2 t, NADDR t' opDrop JMP (a);
+:a opOut4 tos 2/ t, -4 t, NADDR t' opDrop JMP (a);
 :a opExit ip {rp} iLOAD (fall-through); ( !!! ) ( R: a -- )
 :a rdrop --rp ;a ( R: u -- )
 :a opIpInc ip INC ;a ( -- : increment instruction pointer )
@@ -1971,11 +1973,16 @@ opt.glossary [if]
 [then]
 : cold [ {boot} ] literal 2* @execute ; ( -- )
 
-: eth-tx! [ -2 ] literal [!] ; ( -- len )
+
+$8000 constant %eth.rx
+$A000 constant %eth.tx
+$2000 constant #eth.max
+
+: eth-tx! opOut2 ; ( len -- )
 : eth! eth-tx! [ -2 ] literal [@]  ;
 : eth@ [ -3 ] literal [@] ;
 : time [ -4 ] literal [@] [ -5 ] literal [@] ; 
-: sleep [ -4 ] literal [!] ;
+: sleep opOut4 ;
 : ud. <# #s bl hold #> type ;
 
 t' (boot) half {boot} t!      \ Set starting Forth word

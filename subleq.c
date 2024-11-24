@@ -14,7 +14,7 @@ typedef int16_t i16;
 static u16 m[1<<16], prog = 0, pc = 0;
 
 #define ETH0_MAX_PACKET_LEN (0x2000)
-#define ETH0_RX_PKT_ADDR (0x10000) /* This will be 0x8000 within the 16-bit SUBLEQ machine */
+#define ETH0_RX_PKT_ADDR (0x8000)
 #define ETH0_TX_PKT_ADDR (ETH0_RX_PKT_ADDR + ETH0_MAX_PACKET_LEN)
 
 #if defined(unix) || defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))
@@ -149,7 +149,7 @@ int main(int argc, char **argv) {
 	if (argc < 2)
 		return 1;
 	pcap_t *handle = NULL;
-	time_t epoch = 0;
+	unsigned long epoch = 0;
 	int len = 0;
 	if (pcapdev_init(argv[1], &handle) < 0)
 		return 2;
@@ -167,16 +167,16 @@ int main(int argc, char **argv) {
 		if (isio(a)) {
 			switch ((i16)a) {
 			case -1: m[b] = getch(); break;
-			case -2: m[b] = eth_transmit(handle, (unsigned char *)m, len); break;
-			case -3: m[b] = eth_poll(handle, (unsigned char*)m, ETH0_MAX_PACKET_LEN); break;
-			case -4: epoch = time(NULL); m[b] = epoch; break;
-			case -5: m[b] = epoch >> 16; break;
+			case -2: m[b] = -eth_transmit(handle, (unsigned char *)m, len); break;
+			case -3: m[b] = -eth_poll(handle, (unsigned char*)m, ETH0_MAX_PACKET_LEN); break;
+			case -4: epoch = time(NULL); m[b] = -epoch; break;
+			case -5: m[b] = -(epoch >> 16); break;
 			}
 		} else if (isio(b)) {
 			switch ((i16)b) {
 			case -1: if (putch(m[a]) < 0) return 5; break;
 			case -2: len = m[a]; break;
-			case -4: usleep(m[a]); break;
+			case -4: usleep(((long)m[a]) * 1000l); break;
 			}
 		} else {
 			u16 r = m[b] - m[a];
