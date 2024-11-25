@@ -1976,12 +1976,11 @@ opt.glossary [if]
 : cold [ {boot} ] literal 2* @execute ; ( -- )
 
 
-\ TODO: This should use 2constant and save both field length 
-\ and position.
+\ TODO: Version that parses next word but does not define
+\ anything to save space
 :m field (field) 2constant ;m
 
-\ : htons ( n -- n )
-\  dup ff and 8 lshift swap ff00 and 8 rshift or ;
+: htons dup [ 8 ] literal rshift swap [ 8 ] literal lshift + ; 
 
 \ create ip_addr a8c0 , fe0b ,
 \ create ip_netmask ffff , 00ff ,
@@ -1995,6 +1994,13 @@ opt.glossary [if]
 \  dup 10 rshift swap ffff and +
 \  dup 10 rshift +
 \  ffff xor ;
+
+: checksum ( address count -- checksum )
+  0 -rot 0 -rot
+  for
+    dup >r @ 0 d+ r> 1+
+  next
+  drop + invert ;
 
 0
   6 field eth-dest      ( 48 bit source address )
@@ -2058,7 +2064,7 @@ constant #udp-datagram
   2 field tcp-checksum  ( 16 bit checksum )
   2 field tcp-urgent    ( 16 bit urgent pointer )
 constant #tcp-header
-: #udp #ip #tcp-header + ;
+: #tcp #ip #tcp-header + ;
 
 0
   1 field ntp-livnm
@@ -2076,22 +2082,17 @@ constant #tcp-header
 constant #ntp-header
 
 \ TODO: We might want to overlap the eth packet buffers
-$8000 constant %eth.rx
-$A000 constant %eth.tx
-$2000 constant #eth.max
+8000 constant %eth.rx
+A000 constant %eth.tx
+2000 constant #eth.max
 
-$7F00 $0001 constant source-ip
-$7F00 $0001 constant destination-ip
-666 constant source-port
-667 constant destination-port
+0100 007F 2constant source-ip
+0100 007F 2constant destination-ip
+4000 constant source-port
+4100 constant destination-port
 
 \ TODO: Set IP packet
 : ip! ( src-ip dst-ip data-len )
-;
-
-\ TODO: Set UDP packet
-: udp! ( src-ip dst-ip src-port dst-port data u )
-  %eth.tx #udp + 
 ;
 
 \ TODO: Put all these words in their own vocabulary
@@ -2102,6 +2103,31 @@ $7F00 $0001 constant destination-ip
 : time [ -4 ] literal [@] [ -5 ] literal [@] ; 
 : sleep opOut4 ; \ TODO: Make a more generic output primitive
 : ud. <# #s bl hold #> type ;
+
+\ TODO: Set UDP packet
+: (udp) ( src-ip dst-ip src-port dst-port data u )
+  %eth.tx #udp + over >r swap cmove
+  r@ #udp-datagram + htons %eth.tx #ip + udp-len drop + !
+  %eth.tx #ip + udp-dest drop + !
+  %eth.tx #ip + udp-source drop + !
+  %eth.tx #eth-frame + ip-dest drop + 2!
+  %eth.tx #eth-frame + ip-source drop + 2!
+  [ 45 ] literal %eth.tx #eth-frame + ip-vhl drop + c!
+  r@ #udp-datagram + #ip-header + htons %eth.tx #eth-frame + ip-len drop + !
+
+  [ 0008 ] literal %eth.tx eth-type drop + !
+  [ FF ] literal %eth.tx #eth-frame + ip-ttl drop + c!
+  [ 11 ] literal  %eth.tx #eth-frame + ip-proto drop + c!
+
+  r> #udp-datagram + #ip-header + #eth-frame +
+  eth!
+  \ TODO: optional checksum (if not keep checksum as zero )
+;
+
+: udp! ( data u )
+  >r >r source-ip destination-ip source-port destination-port r> r> (udp) ;
+
+: zoop $" ZOOP " count udp! ;
 
 \ TODO: SNTP
 \ #define DELTA (2208988800ull)
