@@ -1976,7 +1976,8 @@ opt.glossary [if]
 : cold [ {boot} ] literal 2* @execute ; ( -- )
 
 
-\ TODO: This should use 2constant and save both field length and position.
+\ TODO: This should use 2constant and save both field length 
+\ and position.
 :m field (field) 2constant ;m
 
 \ : htons ( n -- n )
@@ -2019,7 +2020,7 @@ constant #arp-message
 constant #arp-cache
 
 0
-  1 field ip-vhl        (  4 bit version and 4 bit header length )
+  1 field ip-vhl     (  4 bit version and 4 bit header length )
   1 field ip-tos        (  8 bit type of service )
   2 field ip-len        ( 16 bit length )
   2 field ip-id         ( 16 bit identification )
@@ -2074,6 +2075,7 @@ constant #tcp-header
   \ There are more optional fields, of varying length
 constant #ntp-header
 
+\ TODO: We might want to overlap the eth packet buffers
 $8000 constant %eth.rx
 $A000 constant %eth.tx
 $2000 constant #eth.max
@@ -2101,6 +2103,33 @@ $7F00 $0001 constant destination-ip
 : sleep opOut4 ; \ TODO: Make a more generic output primitive
 : ud. <# #s bl hold #> type ;
 
+\ TODO: SNTP
+\ #define DELTA (2208988800ull)
+\ 
+\ static inline unsigned long unpack32(unsigned char *p) {
+\   assert(p);
+\   unsigned long l = 0;
+\   l |= ((unsigned long)p[0]) << 24;
+\   l |= ((unsigned long)p[1]) << 16;
+\   l |= ((unsigned long)p[2]) <<  8;
+\   l |= ((unsigned long)p[3]) <<  0;
+\   return l;
+\ }
+\ 
+\   unsigned char h[48] = { 0x1b, };
+\   /* we could make this stateful and non-blocking if needed */
+\   const int fd = establish(server, port ? port : 123, SOCK_DGRAM);
+\   if (fd < 0)
+\     return -1;
+\   if (write(fd, h, sizeof h) != sizeof h)
+\     return -2;
+\   if (read(fd, h, sizeof h) != sizeof h)
+\     return -3;
+\   if (close(fd) < 0)
+\     return -4;
+\   *seconds    = unpack32(&h[40]) - DELTA;
+\   *fractional = unpack32(&h[44]);
+
 t' (boot) half {boot} t!      \ Set starting Forth word
 t' quit {quit} t!             \ Set initial Forth word
 atlast {forth-wordlist} t!    \ Make wordlist work
@@ -2112,3 +2141,4 @@ atlast {last} t!              \ Set last defined word
 save-target                   \ Output target
 .end                          \ Get back to normal Forth
 bye                           \ Auf Wiedersehen
+

@@ -31,3 +31,7 @@ The goal of this project is to get a simple networking stack up and running for 
 * [ ] Make some Forth!
 * [ ] Test on Windows
   * [ ] Windows Raw Stdin/Stdout mode
+* [ ] Get multiple instances talking to each other.
+* [ ] Get running on an FPGA with an Ethernet card?
+* [ ] Integrate with <https://github.com/howerj/ffs>
+* [ ] Resolve all TODO comments
