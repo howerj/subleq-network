@@ -1982,6 +1982,8 @@ opt.glossary [if]
 
 : htons dup [ 8 ] literal rshift swap [ 8 ] literal lshift + ; 
 
+\ TODO: Set netmask / hw addr, ipv6
+
 \ create ip_addr a8c0 , fe0b ,
 \ create ip_netmask ffff , 00ff ,
 \ create hw_addr bd00 , 333b , 7f05 ,
@@ -1996,9 +1998,9 @@ opt.glossary [if]
 \  ffff xor ;
 
 : checksum ( address count -- checksum )
-  0 -rot 0 -rot
+  #0 -rot #0 -rot
   for
-    dup >r @ 0 d+ r> 1+
+    dup >r @ #0 d+ r> 1+
   next
   drop + invert ;
 
@@ -2067,18 +2069,19 @@ constant #tcp-header
 : #tcp #ip #tcp-header + ;
 
 0
-  1 field ntp-livnm
-  1 field ntp-stratum
+  1 field ntp-livnm   ( 4-bit Leap indicator, 4-bit version )
+  1 field ntp-stratum 
   1 field ntp-poll
   1 field ntp-precision
-  4 field ntp-root-delay
+  4 field ntp-root-delay 
   4 field ntp-root-dispersion
   4 field ntp-refid
   8 field ntp-ref-ts
   8 field ntp-orig-ts
   8 field ntp-rx-ts
-  8 field ntp-tx-ts
-  \ There are more optional fields, of varying length
+  8 field ntp-tx-ts ( 8-byte Transmit time stamp )
+  \ There are more optional fields, of varying length, such
+  \ as key ids, message digests, auth, etcetera.
 constant #ntp-header
 
 \ TODO: We might want to overlap the eth packet buffers
@@ -2088,10 +2091,14 @@ A000 constant %eth.tx
 
 0100 007F 2constant source-ip
 0100 007F 2constant destination-ip
-4000 constant source-port
-4100 constant destination-port
+6666 constant source-port
+FF00 constant destination-port
+
+\ TODO: Handle IP fragmentation, or at least detect it
+\ TODO: Detect too large packets on RX
 
 \ TODO: Set IP packet
+
 : ip! ( src-ip dst-ip data-len )
 ;
 
@@ -2104,28 +2111,46 @@ A000 constant %eth.tx
 : sleep opOut4 ; \ TODO: Make a more generic output primitive
 : ud. <# #s bl hold #> type ;
 
+\ : ?! ( u a l -- )
+\  dup #1 = if drop c! exit then
+\  dup [ 2 ] literal = if drop swap htons ! exit then
+\  dup [ 4 ] literal = if drop 2! exit then
+\  #-1 throw ;
+
 \ TODO: Set UDP packet
 : (udp) ( src-ip dst-ip src-port dst-port data u )
   %eth.tx #udp + over >r swap cmove
   r@ #udp-datagram + htons %eth.tx #ip + udp-len drop + !
   %eth.tx #ip + udp-dest drop + !
   %eth.tx #ip + udp-source drop + !
+\  [ FE20 ] literal htons %eth.tx #ip + udp-checksum drop + !
   %eth.tx #eth-frame + ip-dest drop + 2!
   %eth.tx #eth-frame + ip-source drop + 2!
   [ 45 ] literal %eth.tx #eth-frame + ip-vhl drop + c!
-  r@ #udp-datagram + #ip-header + htons %eth.tx #eth-frame + ip-len drop + !
+
+  r@ #udp-datagram + #ip-header + htons 
+     %eth.tx #eth-frame + ip-len drop + !
+\  [ 58A2 ] literal %eth.tx #eth-frame + ip-id drop + !
+  [ 0040 ] literal %eth.tx #eth-frame + ip-frags drop + !
+
 
   [ 0008 ] literal %eth.tx eth-type drop + !
-  [ FF ] literal %eth.tx #eth-frame + ip-ttl drop + c!
+  [ 40 ] literal %eth.tx #eth-frame + ip-ttl drop + c!
   [ 11 ] literal  %eth.tx #eth-frame + ip-proto drop + c!
+
+\  [ C685 ] literal htons %eth.tx #eth-frame + ip-id drop + !
+\  [ 7644 ] literal htons %eth.tx #eth-frame + ip-checksum drop + !
+\  %eth.tx #eth-frame + #ip-header checksum htons
+\  %eth.tx #eth-frame + ip-checksum drop + !
 
   r> #udp-datagram + #ip-header + #eth-frame +
   eth!
-  \ TODO: optional checksum (if not keep checksum as zero )
 ;
 
 : udp! ( data u )
-  >r >r source-ip destination-ip source-port destination-port r> r> (udp) ;
+  >r >r 
+  source-ip destination-ip source-port destination-port 
+  r> r> (udp) ;
 
 : zoop $" ZOOP " count udp! ;
 
