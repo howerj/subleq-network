@@ -62,7 +62,7 @@ static int pcapdev_init(const char *name, pcap_t **handle) {
 	char errbuf[PCAP_ERRBUF_SIZE] = { 0, };
 	pcap_if_t *devices = NULL;
 	if (pcap_findalldevs(&devices, errbuf) == -1) {
-		(void)fprintf(stderr, "error pcap_findalldevs: %s\n", errbuf);
+		(void)fprintf(stderr, "pcap -- error findalldevs: %s\n", errbuf);
 		goto fail;
 	}
 	pcap_if_t *device = NULL, *found = NULL;
@@ -73,18 +73,27 @@ static int pcapdev_init(const char *name, pcap_t **handle) {
 		for (pcap_addr_t *addr = device->addresses; addr; addr = addr->next)
 			if (addr->addr->sa_family == AF_INET)
 				usable = 1;
-		if (fprintf(stderr, "%s usable=%s\n", device->name, usable ? "yes" : "no") < 0)
-			goto fail;
-		if (!strcmp(device->name, name))
+		/*if (fprintf(stderr, "%s usable=%s\n", device->name, usable ? "yes" : "no") < 0)
+			goto fail;*/
+		if (!strcmp(device->name, name)) {
+			if (!usable) {
+				(void)fprintf(stderr, "pcap -- device '%s' is not usable\n", name);
+				goto fail;
+			}
 			found = device;
+		}
 	}
 	if (!found) {
-		(void)fprintf(stderr, "device not found '%s'\n", name);
+		(void)fprintf(stderr, "pcap -- error device not found: %s\n", name);
 		goto fail;
 	}
 	device = found;
 	if (!(*handle = pcap_open_live(device->name, 65536, 1, 10 , errbuf))) {
-		(void)fprintf(stderr, "error opening %s\n", errbuf);
+		(void)fprintf(stderr, "pcap -- error opening: %s\n", errbuf);
+		goto fail;
+	}
+	if (pcap_setnonblock(*handle, 1, errbuf) < 0) {
+		(void)fprintf(stderr, "pcap -- error setnonblock: %s\n", errbuf);
 		goto fail;
 	}
 	pcap_freealldevs(devices);
@@ -114,9 +123,6 @@ static int dump(FILE *out, const char *banner, const unsigned char *m, size_t le
 	return 0;
 }
 
-/* TODO: make non-blocking...
- * https://stackoverflow.com/questions/31305712/how-do-i-make-libpcap-pcap-loop-non-blocking
- * https://linux.die.net/man/3/pcap_dispatch */
 static int eth_poll(pcap_t *handle, unsigned char *memory, int max) {
 	assert(handle);
 	assert(memory);

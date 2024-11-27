@@ -2,7 +2,7 @@
 # target for more information.
 default all: help
 
-.PHONY: all clean test run gforth help
+.PHONY: default all clean run help packet capture
 
 CFLAGS=-std=gnu99 -fwrapv -Wall -Wextra -pedantic -O2 -g -march=native
 # TODO -lwpcap on Windows
@@ -11,6 +11,9 @@ FORTH=subleq.fth
 IMAGE=subleq.dec
 SAVED=saved.dec
 DEVICE=lo
+IP=127.0.0.1
+PORT=2048
+MSG=Ahoy
 
 help:
 	@echo
@@ -33,6 +36,8 @@ help:
 	@echo "	run      : run ${IMAGE} with SUBLEQ VM"
 	@echo "	clean    : remove build files using 'git clean -dffx'"
 	@echo "	help     : display this help message"
+	@echo "	capture  : run tcpdump on ${DEVICE}"
+	@echo "	packet   : send a UDP packet to ${IP}:${PORT} containing `${MSG}`"
 	@echo
 	@echo "Consult subleq.fth for more information along"
 	@echo "with the project "readme.md" file."
@@ -44,7 +49,7 @@ subleq: subleq.c
 	${CC} ${CFLAGS} $< ${LDFLAGS} -o $@
 
 run: subleq ${IMAGE}
-	sudo ./subleq ${DEVICE} ${IMAGE} ${SAVED}
+	sudo ./subleq "${DEVICE}" "${IMAGE}" "${SAVED}"
 
 subleq.dec: ${FORTH}
 	gforth $< > $@
@@ -52,4 +57,9 @@ subleq.dec: ${FORTH}
 clean:
 	git clean -dffx
 
+packet:
+	echo -n "${MSG}" | nc -w1 -u "${IP}" "${PORT}"
+
+capture:
+	sudo tcpdump -x -i "${DEVICE}"
 
