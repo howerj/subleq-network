@@ -1982,6 +1982,8 @@ opt.glossary [if]
 
 : htons dup [ 8 ] literal rshift swap [ 8 ] literal lshift + ; 
 : ntohs htons ;
+: htonl htons swap htons ;
+: ntohl htonl ;
 
 \ TODO: Raw socket on Linux instead of pcap?
 
@@ -2083,19 +2085,14 @@ constant #ntp-header
 A000 constant %eth.tx
 2000 constant #eth.max
 
-0100 007F 2constant source-ip
-0100 007F 2constant destination-ip
-6666 constant source-port
-0008 constant destination-port
+7F00 0001 2constant source-ip
+7F00 0001 2constant destination-ip
+
+029A constant source-port
+0800 constant destination-port
 
 \ TODO: Handle IP fragmentation, or at least detect it
 \ TODO: Detect too large packets on RX
-
-\ TODO: Set IP packet
-
-: ip! ( src-ip dst-ip data-len )
-;
-
 \ TODO: Put all these words in their own vocabulary
 
 : eth-tx! opOut2 ; ( len -- )
@@ -2111,6 +2108,18 @@ A000 constant %eth.tx
 \  dup [ 4 ] literal = if drop 2! exit then
 \  #-1 throw ;
 
+\ TODO: Test this, use this
+: ip! ( src-ip dst-ip proto data-len )
+  %eth.tx #eth-frame + ip-len drop + !
+  %eth.tx #eth-frame + ip-proto drop + c!
+  htonl %eth.tx #eth-frame + ip-dest drop + 2!
+  htonl %eth.tx #eth-frame + ip-source drop + 2!
+  [ FF ] literal %eth.tx #eth-frame + ip-ttl drop + c!
+  [ 45 ] literal %eth.tx #eth-frame + ip-vhl drop + c!
+  %eth.tx #eth-frame + #ip-header #0 checksum invert htons
+  %eth.tx #eth-frame + ip-checksum drop + ! ;
+
+
 \ TODO: Set IP packet, memset, checksum (UDP/IP), fragmented
 \ packet response...
 : (udp) ( src-ip dst-ip src-port dst-port data u )
@@ -2119,10 +2128,10 @@ A000 constant %eth.tx
 
   %eth.tx >udp + over >r swap cmove
   r@ #udp-datagram + htons %eth.tx >ip + udp-len drop + !
-  %eth.tx >ip + udp-dest drop + !
-  %eth.tx >ip + udp-source drop + !
-  %eth.tx #eth-frame + ip-dest drop + 2!
-  %eth.tx #eth-frame + ip-source drop + 2!
+  htons %eth.tx >ip + udp-dest drop + !
+  htons %eth.tx >ip + udp-source drop + !
+  htonl %eth.tx #eth-frame + ip-dest drop + 2!
+  htonl %eth.tx #eth-frame + ip-source drop + 2!
   [ 45 ] literal %eth.tx #eth-frame + ip-vhl drop + c!
 
   r@ #udp-datagram + #ip-header + htons 
@@ -2146,8 +2155,7 @@ A000 constant %eth.tx
   %eth.tx >ip + udp-checksum drop + !
 
   r> #udp-datagram + #ip-header + #eth-frame +
-  eth!
-;
+  eth! ;
 
 : udp! ( data u )
   >r >r 
@@ -2161,13 +2169,23 @@ A000 constant %eth.tx
 
 \ TODO: Make sure it is a UDP packet, calculate checksums, ...
 : udp@ ( src-ip dst-ip src-port dst-port data u )
-  %eth.rx #eth-frame + ip-source drop + 2@ \ TODO: ntohl
-  %eth.rx #eth-frame + ip-dest drop + 2@ \ TODO: ntohl
+  %eth.rx #eth-frame + ip-source drop + 2@ ntohl
+  %eth.rx #eth-frame + ip-dest drop + 2@ ntohl
   %eth.rx >ip + udp-source drop + @ ntohs
   %eth.rx >ip + udp-dest drop + @ ntohs
   %eth.rx >udp + 
   %eth.rx >ip + udp-len drop + @ ntohs 
   #udp-datagram - ;
+
+: ethernet
+  %eth.rx #eth-frame + ip-vhl drop + c@ [ 45 ] literal =
+  if
+    %eth.rx #eth-frame + ip-proto drop + c@ 
+    dup [ 1 ] literal = if drop ." ICMP" cr #-1 exit then
+    dup [ 6 ] literal = if drop ." TCP" cr #-1 exit then
+        [ 11 ] literal = if ." UDP" cr #-1 exit then
+  then #0 ;
+
 
 \ TODO: Make a series of tasks
 \ - Read IP packets
