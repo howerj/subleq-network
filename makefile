@@ -38,6 +38,7 @@ help:
 	@echo "	help     : display this help message"
 	@echo "	capture  : run tcpdump on ${DEVICE}"
 	@echo "	packet   : send a UDP packet to ${IP}:${PORT} containing `${MSG}`"
+	@echo "	listen   : listen for UDP packets on ${IP}:${PORT}"
 	@echo
 	@echo "Consult subleq.fth for more information along"
 	@echo "with the project "readme.md" file."
@@ -59,6 +60,11 @@ clean:
 
 packet:
 	echo -n "${MSG}" | nc -w1 -u "${IP}" "${PORT}"
+
+listen:
+	nc -lvvu "${IP}" "${PORT}"
+
+
 
 capture:
 	sudo tcpdump -x -i "${DEVICE}"

@@ -14,8 +14,8 @@ typedef int16_t i16;
 static u16 m[1<<16], prog = 0, pc = 0;
 
 #define ETH0_MAX_PACKET_LEN (0x2000)
-#define ETH0_RX_PKT_ADDR (0x8000)
-#define ETH0_TX_PKT_ADDR (ETH0_RX_PKT_ADDR + ETH0_MAX_PACKET_LEN)
+#define ETH0_RX_PKT_ADDR (0xC000)
+#define ETH0_TX_PKT_ADDR (ETH0_RX_PKT_ADDR)
 
 #if defined(unix) || defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))
 #include <unistd.h>
@@ -107,7 +107,7 @@ fail:
 	return -1;
 }
 
-static int dump(FILE *out, const char *banner, const unsigned char *m, size_t len) {
+static inline int dump(FILE *out, const char *banner, const unsigned char *m, size_t len) {
 	assert(out);
 	assert(banner);
 	assert(m);
@@ -134,7 +134,7 @@ static int eth_poll(pcap_t *handle, unsigned char *memory, int max) {
 	int len = header->len;
 	len = len > max ? max : len;
 	memcpy(&memory[ETH0_RX_PKT_ADDR], packet, len);
-	dump(stdout, "ETH RX", packet, len);
+	/*dump(stdout, "ETH RX", packet, len);*/
 	return len;
 }
 

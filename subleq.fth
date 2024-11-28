@@ -1993,12 +1993,15 @@ opt.glossary [if]
 \ create ip_netmask ffff , 00ff ,
 \ create hw_addr bd00 , 333b , 7f05 ,
 
- : checksum ( address count 0 -- checksum )
+: checksum ( address count 0 -- checksum )
    -rot
    2/ 1- for
      dup >r @ ntohs um+ + r> cell+
    next
    drop ;
+
+\ TODO: It might have been better to start structures with
+\ the value of their encapsulating structure.
 
 0
   6 field eth-dest      ( 48 bit source address )
@@ -2065,35 +2068,38 @@ constant #tcp-header
 : #tcp >ip #tcp-header + ;
 
 0
-  1 field ntp-livnm   ( 4-bit Leap indicator, 4-bit version )
-  1 field ntp-stratum 
-  1 field ntp-poll
-  1 field ntp-precision
-  4 field ntp-root-delay 
-  4 field ntp-root-dispersion
-  4 field ntp-refid
-  8 field ntp-ref-ts
-  8 field ntp-orig-ts
-  8 field ntp-rx-ts
-  8 field ntp-tx-ts ( 8-byte Transmit time stamp )
+  1 field ntp-livnm   ( 2-bit Leap, 3-bit version, 3-bit mode )
+  1 field ntp-stratum   ( Stratum [closeness to good clock] )
+  1 field ntp-poll      ( Poll field, max suggested poll rate )
+  1 field ntp-precision ( Precision [signed log2 seconds] )
+  4 field ntp-root-delay ( Root delay )
+  4 field ntp-root-dispersion ( Root dispersion )
+  4 field ntp-refid     ( Reference ID )
+  8 field ntp-ref-ts    ( Reference Time Stamp )
+  8 field ntp-orig-ts   ( Origin Time Stamp )
+  8 field ntp-rx-ts     ( RX Time Stamp )
+  8 field ntp-tx-ts     ( 8-byte Transmit time stamp )
   \ There are more optional fields, of varying length, such
   \ as key ids, message digests, auth, etcetera.
 constant #ntp-header
 
-\ TODO: We might want to overlap the eth packet buffers
-8000 constant %eth.rx
-A000 constant %eth.tx
-2000 constant #eth.max
+C000 constant %ethernet \ Ethernet packet address
+2000 constant #ethernet \ Max ethernet packet length (bytes)
 
-7F00 0001 2constant source-ip
-7F00 0001 2constant destination-ip
+7F00 0001 2variable source-ip
+7F00 0001 2variable destination-ip
 
-029A constant source-port
-0800 constant destination-port
+029A variable source-port t' source-port >tbody t!
+0800 variable destination-port t' destination-port >tbody t!
+
+1 constant proto-icmp
+6 constant proto-tcp
+11 constant proto-udp
 
 \ TODO: Handle IP fragmentation, or at least detect it
 \ TODO: Detect too large packets on RX
 \ TODO: Put all these words in their own vocabulary
+\ TODO: Factor words
 
 : eth-tx! opOut2 ; ( len -- )
 : eth! eth-tx! [ -2 ] literal [@]  ;
@@ -2108,91 +2114,122 @@ A000 constant %eth.tx
 \  dup [ 4 ] literal = if drop 2! exit then
 \  #-1 throw ;
 
+\ TODO: Set MAC src/dst
+: ethernet! ( -- )
+  [ 0008 ] literal %ethernet eth-type drop + ! ;
+
 \ TODO: Test this, use this
+\ TODO: Make one for setting an ethernet frame also
 : ip! ( src-ip dst-ip proto data-len )
-  %eth.tx #eth-frame + ip-len drop + !
-  %eth.tx #eth-frame + ip-proto drop + c!
-  htonl %eth.tx #eth-frame + ip-dest drop + 2!
-  htonl %eth.tx #eth-frame + ip-source drop + 2!
-  [ FF ] literal %eth.tx #eth-frame + ip-ttl drop + c!
-  [ 45 ] literal %eth.tx #eth-frame + ip-vhl drop + c!
-  %eth.tx #eth-frame + #ip-header #0 checksum invert htons
-  %eth.tx #eth-frame + ip-checksum drop + ! ;
+  ethernet!
+  [ 0040 ] literal %ethernet #eth-frame + ip-frags drop + !
+  htons %ethernet #eth-frame + ip-len drop + !
+  %ethernet #eth-frame + ip-proto drop + c!
+  htonl %ethernet #eth-frame + ip-dest drop + 2!
+  htonl %ethernet #eth-frame + ip-source drop + 2!
+  [ FF ] literal %ethernet #eth-frame + ip-ttl drop + c!
+  [ 45 ] literal %ethernet #eth-frame + ip-vhl drop + c!
+  %ethernet #eth-frame + #ip-header #0 checksum invert htons
+  %ethernet #eth-frame + ip-checksum drop + !  ;
 
+\ UDP checksum calculation over data and IP pseudo header
+: udp-check  ( length -- checksum )
+  >r
+  %ethernet #eth-frame + ip-source >r + r> #0 checksum
+  %ethernet #eth-frame + ip-dest   >r + r> rot checksum
+  proto-udp um+ +
+  r@ #udp-datagram + um+ +
+  %ethernet >ip + r> #udp-datagram + aligned rot checksum 
+  invert ;
 
-\ TODO: Set IP packet, memset, checksum (UDP/IP), fragmented
-\ packet response...
-: (udp) ( src-ip dst-ip src-port dst-port data u )
-  dup %eth.tx swap #eth-frame + #ip-header + #udp-datagram + 
+: udp-zero ( length -- : zero UDP + IP + Frame )
+  %ethernet swap #eth-frame + #ip-header + #udp-datagram + 
+  aligned #0 fill ;
+
+: udp-fmt ( src-ip dst-ip src-port dst-port data u -- u )
+  dup %ethernet swap #eth-frame + #ip-header + #udp-datagram + 
   aligned #0 fill \ Zero all packet
 
-  %eth.tx >udp + over >r swap cmove
-  r@ #udp-datagram + htons %eth.tx >ip + udp-len drop + !
-  htons %eth.tx >ip + udp-dest drop + !
-  htons %eth.tx >ip + udp-source drop + !
-  htonl %eth.tx #eth-frame + ip-dest drop + 2!
-  htonl %eth.tx #eth-frame + ip-source drop + 2!
-  [ 45 ] literal %eth.tx #eth-frame + ip-vhl drop + c!
+  %ethernet >udp + over >r swap cmove
+  r@ #udp-datagram + htons %ethernet >ip + udp-len drop + !
+  htons %ethernet >ip + udp-dest drop + !
+  htons %ethernet >ip + udp-source drop + !
 
-  r@ #udp-datagram + #ip-header + htons 
-     %eth.tx #eth-frame + ip-len drop + !
-  [ 0040 ] literal %eth.tx #eth-frame + ip-frags drop + !
+  proto-udp r@ #udp-datagram + #ip-header + ip!
 
-  [ 0008 ] literal %eth.tx eth-type drop + !
-  [ 40 ] literal %eth.tx #eth-frame + ip-ttl drop + c!
-  [ 11 ] literal  %eth.tx #eth-frame + ip-proto drop + c!
+  r@ udp-check htons %ethernet >ip + udp-checksum drop + !
 
-  \ IP Checksum calculation
-  %eth.tx #eth-frame + #ip-header #0 checksum invert htons
-  %eth.tx #eth-frame + ip-checksum drop + !
+  r> #udp-datagram + #ip-header + #eth-frame + ;
 
-  \ UDP checksum calculation
-  %eth.tx #eth-frame + ip-source >r + r> #0 checksum
-  %eth.tx #eth-frame + ip-dest   >r + r> rot checksum
-  [ 11 ] literal um+ +
-  r@ #udp-datagram + um+ +
-  %eth.tx >ip + r@ #udp-datagram + aligned rot checksum invert htons
-  %eth.tx >ip + udp-checksum drop + !
+: address
+  source-ip 2@ destination-ip 2@ 
+  source-port @ destination-port @ ;
+: udp! >r >r address r> r> udp-fmt eth! ; ( data u -- f )
 
-  r> #udp-datagram + #ip-header + #eth-frame +
-  eth! ;
+: " [char] " word count ( ccc" -- a u : temp string )
+  dup >r here [ 100 ] literal + >r r@ swap cmove r> r> ;
 
-: udp! ( data u )
-  >r >r 
-  source-ip destination-ip source-port destination-port 
-  r> r> (udp) ;
-
-: zoop $" Hello, World!" count udp! ;
-
-\ : >iph drop %eth.rx #eth-frame + + ;
-\ : >udph drop %eth.rx >ip + + ;
-
+\ TODO: fragmented packet response...
 \ TODO: Make sure it is a UDP packet, calculate checksums, ...
-: udp@ ( src-ip dst-ip src-port dst-port data u )
-  %eth.rx #eth-frame + ip-source drop + 2@ ntohl
-  %eth.rx #eth-frame + ip-dest drop + 2@ ntohl
-  %eth.rx >ip + udp-source drop + @ ntohs
-  %eth.rx >ip + udp-dest drop + @ ntohs
-  %eth.rx >udp + 
-  %eth.rx >ip + udp-len drop + @ ntohs 
+\ TODO: Insecure remote execution protocol
+: udp@ ( -- src-ip dst-ip src-port dst-port data u )
+  %ethernet #eth-frame + ip-source drop + 2@ ntohl
+  %ethernet #eth-frame + ip-dest drop + 2@ ntohl
+  %ethernet >ip + udp-source drop + @ ntohs
+  %ethernet >ip + udp-dest drop + @ ntohs
+  %ethernet >udp + 
+  %ethernet >ip + udp-len drop + @ ntohs 
   #udp-datagram - ;
 
-: ethernet
-  %eth.rx #eth-frame + ip-vhl drop + c@ [ 45 ] literal =
-  if
-    %eth.rx #eth-frame + ip-proto drop + c@ 
-    dup [ 1 ] literal = if drop ." ICMP" cr #-1 exit then
-    dup [ 6 ] literal = if drop ." TCP" cr #-1 exit then
-        [ 11 ] literal = if ." UDP" cr #-1 exit then
-  then #0 ;
+\ : bytes dup [ $FF ] literal and swap [ 8 ] rshift ;
 
+: .ip ( ip -- print double cell ip in hex )
+  base @ >r hex
+  swap <# 
+    # # [char] . hold
+    # # [char] . hold
+    # # [char] . hold
+    # #
+  #> type
+  r> base ! ;
+
+: .udp ( -- src-ip dst-ip src-port dst-port data u )
+  2>r 2>r 2>r cr
+  ." UDP:" cr 
+  ." IP-SRC: " .ip cr
+  ." IP-DST: " 2r> .ip cr
+  ." PORT-SRC: " r> u. cr
+  ." PORT-DST: " r> u. cr
+  ." HEX DUMP: " 2r> dump cr ;
+
+: ethernet ( -- )
+  %ethernet #eth-frame + ip-vhl drop + c@ [ 45 ] literal =
+  if
+    %ethernet #eth-frame + ip-proto drop + c@ 
+    dup proto-icmp = if drop ." ICMP" cr #-1 exit then
+    dup proto-tcp = if drop ." TCP" cr #-1 exit then
+        proto-udp = if ." UDP" cr #-1 exit then
+  then #0 ;
 
 \ TODO: Make a series of tasks
 \ - Read IP packets
 \ - Sleep
 \ - Handle User I/O
+: internet
+   begin
+     pause
+     eth@ 0> if ethernet then
+     [ 10 ] literal sleep
+   again ;
+
+: zoop $" Hello, World!" count udp! ;
+
 
 \ TODO: SNTP
+\ 
+\ - Get IP addresses of well known SNTP servers 
+\ - udp-fmt, ...
+\ 
 \ #define DELTA (2208988800ull)
 \ 
 \ static inline unsigned long unpack32(unsigned char *p) {
@@ -2206,8 +2243,9 @@ A000 constant %eth.tx
 \ }
 \ 
 \   unsigned char h[48] = { 0x1b, };
-\   /* we could make this stateful and non-blocking if needed */
-\   const int fd = establish(server, port ? port : 123, SOCK_DGRAM);
+\   /* we could make this stateful + non-blocking if needed */
+\   const int fd = establish(server, port ? port : 123, 
+\                                              SOCK_DGRAM);
 \   if (fd < 0)
 \     return -1;
 \   if (write(fd, h, sizeof h) != sizeof h)
@@ -2231,3 +2269,86 @@ save-target                   \ Output target
 .end                          \ Get back to normal Forth
 bye                           \ Auf Wiedersehen
 
+\ defined random 0= [if]
+\ cell 2 = ?\ 13 constant #a 9  constant #b 7  constant #c
+\ cell 4 = ?\ 13 constant #a 17 constant #b 5  constant #c
+\ cell 8 = ?\ 12 constant #a 25 constant #b 27 constant #c
+\ defined #a 0= [if] abort" Invalid Cell Size" [then]
+\ 
+\ variable seed 7 seed ! ( must not be zero )
+\ 
+\ : seed! ( x -- : set the value of the PRNG seed )
+\   dup 0= if drop 7 ( zero not allowed ) then seed ! ;
+\ 
+\ : random ( -- x : random number )
+\   seed @
+\   dup #a lshift xor
+\   dup #b rshift xor
+\   dup #c lshift xor
+\   dup seed! ;
+\   (def *months* ; months of the year association list
+\     '((0 . January)  (1 . February)  (2 . March) 
+\       (3 . April)    (4 . May)       (5 . June) 
+\       (6 . July)     (7 . August)    (8 . September)
+\       (9 . October)  (10 . November) (11 . December)))
+\   (def *week-days* ; days of the week association list
+\     '((0 . Sunday)  (1 . Monday)  (2 . Tuesday) (3 . Wednesday)
+\       (4 . Thurday) (5 . Friday)  (6 . Saturday)))
+\   ; Programmers in their arrogance see how dates and times are handled and want
+\   ; to simplify the calendar we use, which given this bullshit seems
+\   ; reasonable. Perhaps we should just use Unix time in day to day conversation
+\   ; just so I do not have to look at this code, alternatively we could all go
+\   ; live under rocks.
+\   (defun date (z) ; Convert Unix Time to a Date List, See <https://stackoverflow.com/questions/7960318>
+\          pgn
+\          (def o z)
+\          (set z (div z 86400)) ; z -> Days
+\          (set z (add z 719468))
+\          (def era (div (if (meq z 0) z (sub z 146096)) 146097))
+\          (def doe (abs (sub z (mul era 146097))))
+\          (def yoe (div (add doe (negate (div doe 1460)) (div doe 36524) (negate (div doe 146096))) 365))
+\          (def y (add yoe (mul era 400)))
+\          (def doy (sub doe (add (mul 365 yoe) (div yoe 4) (negate (div yoe 100)))))
+\          (def mp (div (add 2 (mul 5 doy)) 153))
+\          (def d (sub (add 1 doy) (div (add 2 (mul mp 153)) 5)))
+\          (def m (add mp (if (less mp 10) 3 -9)))
+\          (list (add y (if (leq m 2) 1 0)) m d (div (mod o 86400) 3600) (div (mod o 3600) 60) (mod o 60)))
+\   (defun unix (z) ; Convert Date List `(year months days hours minutes seconds)` to Unix Time
+\          pgn
+\          (def y (car z)) (set z (cdr z))
+\          (def m (car z)) (set z (cdr z))
+\          (def d (car z)) (set z (cdr z))
+\          (def H (car z)) (set z (cdr z))
+\          (def M (car z)) (set z (cdr z))
+\          (def S (car z))
+\          (def r (add S (mul M 60) (mul H 3600)))
+\          (set y (sub y (if (leq m 2) 1 0)))
+\          (def era (div (if (meq y 0) y (sub y 399)) 400))
+\          (def yoe (abs (sub y (mul era 400))))
+\          (def doy (add (div (add (mul 153 (add m (if (more m 2) -3 9))) 2) 5) d -1))
+\          (def doe (add (mul yoe 365) (div yoe 4) (negate (div yoe 100)) doy))
+\          (add r (mul 86400 (add (mul era 146097) doe -719468))))
+\   ; https://en.wikipedia.org/wiki/Zeller%27s_congruence
+\   ; https://news.ycombinator.com/item?id=11358999
+\   (defun day-of-week (z)
+\     pgn
+\       (set year (car z)) (set z (cdr z))
+\       (set month (car z)) (set z (cdr z))
+\       (set day (car z)) ; Don't care about rest
+\       (set day 
+\         (add day
+\               (if
+\                 (less month 3)
+\                 (add 1 (set year (sub year 1))) ; increment year but return original year
+\                 (sub year 2))))
+\       (mod (add
+\         (div (mul 23 month) 9)
+\         day
+\         4
+\         (div year 4)
+\         (negate (div year 100))
+\         (div year 400)) 7))
+\   (defun day? (s)
+\            pgn 
+\            (def d (date s)) 
+\            (cdr (assoc (day-of-week (list (car d) (cadr d) (car (cddr d)))) *week-days*)))
