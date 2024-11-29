@@ -412,9 +412,13 @@ assembler.1 -order
 :a opDrop tos {sp} iLOAD --sp ;a ( n -- )
 :a [@] tos tos iLOAD ;a ( a -- a : load SUBLEQ address )
 :a [!] r0 {sp} iLOAD r0 tos iSTORE --sp t' opDrop JMP (a);
-:a opEmit tos PUT t' opDrop JMP (a); ( n -- )
-:a opOut2 tos 2/ t, -2 t, NADDR t' opDrop JMP (a);
-:a opOut4 tos 2/ t, -4 t, NADDR t' opDrop JMP (a);
+:a out! ( u a -- : output, unlike input, needs special casing )
+   tos r0 MOV
+   tos {sp} iLOAD
+   --sp
+   r0 there $D 2* + MOV
+   tos 2/ t, 0 t, NADDR
+   t' opDrop JMP (a);
 :a opExit ip {rp} iLOAD (fall-through); ( !!! ) ( R: a -- )
 :a rdrop --rp ;a ( R: u -- )
 :a opIpInc ip INC ;a ( -- : increment instruction pointer )
@@ -718,8 +722,8 @@ system[
 : cells 2* ;     ( u -- u : multiply # of cells to get bytes )
 : cell- cell - ; ( a -- a : decrement address by cell width )
 : execute 2/ >r ; ( xt -- : execute an execution token )
-:s @execute ( ?dup 0= ?exit ) @ execute ;s ( xt -- )
 : ?exit if rdrop then ; compile-only ( u --, R: -- |??? )
+:s @execute ?dup 0= ?exit @ execute ;s ( xt -- )
 : key? pause #-1 [@] negate ( -- c -1 | 0 : get byte of input )
    s>d if
      [ {options} ] literal @
@@ -824,7 +828,7 @@ system[ user tup =cell tallot ]system
 : /mod over 0< swap m/mod ; ( u1 u2 -- u1%u2 u1/u2 )
 : mod /mod drop ; ( u1 u2 -- u1%u2 )
 : /   /mod nip ; ( u1 u2 -- u1/u2 )
-:s (emit) pause opEmit ;s ( c -- : output byte to terminal )
+:s (emit) pause #-1 out! ;s ( c -- : output byte to terminal )
 : echo <echo> @execute ; ( c -- : emit a single character )
 :s tap dup echo over c! 1+ ;s ( bot eot cur c -- bot eot cur )
 :s ktap ( bot eot cur c -- bot eot cur )
@@ -1982,7 +1986,7 @@ opt.glossary [if]
 
 : htons dup [ 8 ] literal rshift swap [ 8 ] literal lshift + ; 
 : ntohs htons ;
-: htonl htons swap htons ;
+: htonl htons swap htons swap ;
 : ntohl htonl ;
 
 \ TODO: Raw socket on Linux instead of pcap?
@@ -1993,6 +1997,8 @@ opt.glossary [if]
 \ create ip_netmask ffff , 00ff ,
 \ create hw_addr bd00 , 333b , 7f05 ,
 
+\ TODO: Is this checksum correct? Does the added bit also need 
+\ to have the potential carry wrapped around?
 : checksum ( address count 0 -- checksum )
    -rot
    2/ 1- for
@@ -2086,12 +2092,17 @@ constant #ntp-header
 C000 constant %ethernet \ Ethernet packet address
 2000 constant #ethernet \ Max ethernet packet length (bytes)
 
-7F00 0001 2variable source-ip
+
+7F00 0001 2variable source-ip \ C0A8 018F 2variable source-ip
 7F00 0001 2variable destination-ip
+D8EF 2300 2variable ntp-ip \ 216.239.35.0, Google NTP
+
+\ TODO: MAC address
 
 029A variable source-port t' source-port >tbody t!
 0800 variable destination-port t' destination-port >tbody t!
 
+0800 constant proto-ip
 1 constant proto-icmp
 6 constant proto-tcp
 11 constant proto-udp
@@ -2100,13 +2111,17 @@ C000 constant %ethernet \ Ethernet packet address
 \ TODO: Detect too large packets on RX
 \ TODO: Put all these words in their own vocabulary
 \ TODO: Factor words
+\ TODO: Abstract out non-portable words such as @/!
 
-: eth-tx! opOut2 ; ( len -- )
+: eth-tx! [ -2 ] literal out! ; ( len -- )
 : eth! eth-tx! [ -2 ] literal [@]  ;
 : eth@ [ -3 ] literal [@] ;
 : time [ -4 ] literal [@] [ -5 ] literal [@] ; 
-: sleep opOut4 ; \ TODO: Make a more generic output primitive
+: sleep [ -4 ] literal out! ;
 : ud. <# #s bl hold #> type ;
+: array [ 41 ] literal buffer ;
+: " [char] " word count ( ccc" -- a u : temp string )
+  dup >r here [ 100 ] literal + >r r@ swap cmove r> r> ;
 
 \ : ?! ( u a l -- )
 \  dup #1 = if drop c! exit then
@@ -2114,13 +2129,17 @@ C000 constant %ethernet \ Ethernet packet address
 \  dup [ 4 ] literal = if drop 2! exit then
 \  #-1 throw ;
 
+
+\ TODO: Use this
+: length? dup #ethernet u> throw ; ( u -- u)
+
 \ TODO: Set MAC src/dst
 : ethernet! ( -- )
-  [ 0008 ] literal %ethernet eth-type drop + ! ;
+  proto-ip htons %ethernet eth-type drop + ! ;
 
-\ TODO: Test this, use this
 \ TODO: Make one for setting an ethernet frame also
-: ip! ( src-ip dst-ip proto data-len )
+: ip! ( src-ip dst-ip proto data-len -- )
+  length?
   ethernet!
   [ 0040 ] literal %ethernet #eth-frame + ip-frags drop + !
   htons %ethernet #eth-frame + ip-len drop + !
@@ -2134,6 +2153,7 @@ C000 constant %ethernet \ Ethernet packet address
 
 \ UDP checksum calculation over data and IP pseudo header
 : udp-check  ( length -- checksum )
+  length?
   >r
   %ethernet #eth-frame + ip-source >r + r> #0 checksum
   %ethernet #eth-frame + ip-dest   >r + r> rot checksum
@@ -2143,10 +2163,12 @@ C000 constant %ethernet \ Ethernet packet address
   invert ;
 
 : udp-zero ( length -- : zero UDP + IP + Frame )
+  length?
   %ethernet swap #eth-frame + #ip-header + #udp-datagram + 
   aligned #0 fill ;
 
 : udp-fmt ( src-ip dst-ip src-port dst-port data u -- u )
+  length?
   dup %ethernet swap #eth-frame + #ip-header + #udp-datagram + 
   aligned #0 fill \ Zero all packet
 
@@ -2159,20 +2181,53 @@ C000 constant %ethernet \ Ethernet packet address
 
   r@ udp-check htons %ethernet >ip + udp-checksum drop + !
 
-  r> #udp-datagram + #ip-header + #eth-frame + ;
+  r> #udp-datagram + #ip-header + #eth-frame + length? ;
 
-: address
+: address ( -- src-ip dst-ip src-port dst-port )
   source-ip 2@ destination-ip 2@ 
   source-port @ destination-port @ ;
 : udp! >r >r address r> r> udp-fmt eth! ; ( data u -- f )
 
-: " [char] " word count ( ccc" -- a u : temp string )
-  dup >r here [ 100 ] literal + >r r@ swap cmove r> r> ;
+\ TODO: Do not trust ip-len
+: ?ethernet ( -- f : is invalid ethernet packet? )
+  %ethernet eth-type drop + @ ntohs proto-ip <> ?dup ?exit
+  #0 ;
+
+: ?ip ( -- f : is invalid ip packet? )
+  ?ethernet ?dup ?exit
+
+  %ethernet #eth-frame + ip-vhl drop + c@ [ 45 ] literal <> 
+  ?dup ?exit
+
+  %ethernet #eth-frame + ip-checksum drop + @ ntohs ?dup if
+     drop
+     %ethernet #eth-frame + #ip-header #0 checksum invert htons
+     0<> ?dup ?exit
+  then
+  #0 ;
+
+: ?udp ( -- f : is invalid udp packet? )
+  ?ip ?dup ?exit
+
+  %ethernet #eth-frame + ip-proto drop + c@ proto-udp <> 
+  ?dup ?exit
+
+  %ethernet >ip + udp-checksum drop + @ ntohs ?dup if
+\     %ethernet >ip + udp-len  drop + @ ntohs #udp-datagram -
+\     udp-check ." >>>" u. u.
+      drop
+  then
+
+  #0 ;
+
+: us? ( ip -- f : packet addressed to us? )
+;
 
 \ TODO: fragmented packet response...
 \ TODO: Make sure it is a UDP packet, calculate checksums, ...
 \ TODO: Insecure remote execution protocol
 : udp@ ( -- src-ip dst-ip src-port dst-port data u )
+  ?udp 0<> throw \ TODO: Bool instead?
   %ethernet #eth-frame + ip-source drop + 2@ ntohl
   %ethernet #eth-frame + ip-dest drop + 2@ ntohl
   %ethernet >ip + udp-source drop + @ ntohs
@@ -2193,7 +2248,7 @@ C000 constant %ethernet \ Ethernet packet address
   #> type
   r> base ! ;
 
-: .udp ( -- src-ip dst-ip src-port dst-port data u )
+: .udp ( src-ip dst-ip src-port dst-port data u -- )
   2>r 2>r 2>r cr
   ." UDP:" cr 
   ." IP-SRC: " .ip cr
@@ -2202,14 +2257,32 @@ C000 constant %ethernet \ Ethernet packet address
   ." PORT-DST: " r> u. cr
   ." HEX DUMP: " 2r> dump cr ;
 
-: ethernet ( -- )
+
+variable <udp>
+variable <tcp>
+variable <icmp>
+
+: @udp <udp> @execute ;
+: @tcp <tcp> @execute ;
+: @icmp <icmp> @execute ;
+
+: ethernet ( -- f )
   %ethernet #eth-frame + ip-vhl drop + c@ [ 45 ] literal =
   if
     %ethernet #eth-frame + ip-proto drop + c@ 
     dup proto-icmp = if drop ." ICMP" cr #-1 exit then
     dup proto-tcp = if drop ." TCP" cr #-1 exit then
-        proto-udp = if ." UDP" cr #-1 exit then
+        proto-udp = if udp@ .udp #-1 exit then
   then #0 ;
+
+: sntp!
+  array [ 30 ] literal #0 fill
+  [ 1b ] literal array c!
+  source-ip 2@ ntp-ip 2@ [ 3FF ] literal [ 7B ] literal
+  array [ 30 ] literal udp-fmt eth! ;
+
+: sntp@ ( -- time )
+;
 
 \ TODO: Make a series of tasks
 \ - Read IP packets
@@ -2218,9 +2291,11 @@ C000 constant %ethernet \ Ethernet packet address
 : internet
    begin
      pause
-     eth@ 0> if ethernet then
+     eth@ 0> if ethernet drop then
      [ 10 ] literal sleep
-   again ;
+     \ key? if bl or [char] q = else #0 then
+     key? if 0<> else #0 then
+   until ;
 
 : zoop $" Hello, World!" count udp! ;
 
