@@ -1979,6 +1979,7 @@ opt.glossary [if]
 [then]
 : cold [ {boot} ] literal 2* @execute ; ( -- )
 
+\ =============================================================
 
 \ TODO: Version that parses next word but does not define
 \ anything to save space
@@ -2096,6 +2097,9 @@ C000 constant %ethernet \ Ethernet packet address
 7F00 0001 2variable source-ip \ C0A8 018F 2variable source-ip
 7F00 0001 2variable destination-ip
 D8EF 2300 2variable ntp-ip \ 216.239.35.0, Google NTP
+FFFF FFFF 2variable broadcast-ip
+
+\ FF FF FF FF FF FF broadcast-mac
 
 \ TODO: MAC address
 
@@ -2103,6 +2107,7 @@ D8EF 2300 2variable ntp-ip \ 216.239.35.0, Google NTP
 0800 variable destination-port t' destination-port >tbody t!
 
 0800 constant proto-ip
+0806 constant proto-arp
 1 constant proto-icmp
 6 constant proto-tcp
 11 constant proto-udp
@@ -2193,6 +2198,11 @@ D8EF 2300 2variable ntp-ip \ 216.239.35.0, Google NTP
   %ethernet eth-type drop + @ ntohs proto-ip <> ?dup ?exit
   #0 ;
 
+\ https://stackoverflow.com/questions/60550481
+: fragmented?
+  %ethernet #eth-frame + ip-frags drop + @ ntohs
+  [ $3FFF ] literal and 0<> ;
+
 : ?ip ( -- f : is invalid ip packet? )
   ?ethernet ?dup ?exit
 
@@ -2219,6 +2229,21 @@ D8EF 2300 2variable ntp-ip \ 216.239.35.0, Google NTP
   then
 
   #0 ;
+
+: ?icmp ( -- f )
+;
+: icmp@ ( -- type code rest-of-header )
+;
+: icmp! ( type code rest-of-header -- f )
+;
+
+: ?arp 
+;
+: arp@ 
+;
+: arp! 
+;
+
 
 : us? ( ip -- f : packet addressed to us? )
 ;
@@ -2331,6 +2356,9 @@ variable <icmp>
 \     return -4;
 \   *seconds    = unpack32(&h[40]) - DELTA;
 \   *fractional = unpack32(&h[44]);
+
+
+\ =============================================================
 
 t' (boot) half {boot} t!      \ Set starting Forth word
 t' quit {quit} t!             \ Set initial Forth word

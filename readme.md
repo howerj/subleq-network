@@ -26,8 +26,8 @@ The goal of this project is to get a simple networking stack up and running for 
   * [ ] Document new SUBLEQ peripherals
 * [ ] Make scripts for sending/receiving data, monitoring data sent/received
 * [ ] Add and test peripherals to SUBLEQ machine
-* [ ] Decide on which protocols to implement (Ethernet, IP, UDP, TFTP, DNS, ARP, DHCP,
-  TCP, and as clients/servers).
+* [ ] Decide on which protocols to implement (Ethernet, IPv4, IPv6, UDP, TFTP, DNS, ARP, DHCP,
+  TCP, ICMP responses, and clients/servers where appropriate).
 * [ ] Make some Forth!
 * [ ] Test on Windows
   * [ ] Windows Raw Stdin/Stdout mode
@@ -35,3 +35,5 @@ The goal of this project is to get a simple networking stack up and running for 
 * [ ] Get running on an FPGA with an Ethernet card?
 * [ ] Integrate with <https://github.com/howerj/ffs>
 * [ ] Resolve all TODO comments
+* [ ] It might make sense to use a TAP (see <https://en.wikipedia.org/wiki/TUN/TAP>) device
+  instead, for Linux.
